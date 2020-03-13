@@ -35,6 +35,9 @@ def main():
     tr_losses = []
     mAPs = []
 
+    # ----------------
+    # Train
+    # ----------------
     def train():
         model.train()
         start_time = time.time()
@@ -91,6 +94,10 @@ def main():
 
         return loss.item()
 
+    # ----------------
+    # Validate
+    # ----------------
+
     def validate():
         print("\n---- Evaluating Model ----")
         # Evaluate the model on the validation set
@@ -122,6 +129,10 @@ def main():
         is_best = curr_mAP > max_mAP
         max_mAP = max(max_mAP, curr_mAP)
         return curr_mAP, is_best, max_mAP
+
+    # ----------------
+    # Main
+    # ----------------
 
     logger = Logger("logs")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
