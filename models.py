@@ -311,7 +311,7 @@ class Darknet(nn.Module):
     """
     YOLOv3 object detection model
     """
-    def __init__(self, config_path, img_size = 416, fl_gamma = 2):
+    def __init__(self, config_path, img_size = 416, fl_gamma = 0):
         super(Darknet, self).__init__()
         self.config = parse_model_config(config_path)
         self.params, self.module_list = build_modules(self.config, fl_gamma)
