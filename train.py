@@ -55,9 +55,9 @@ def main():
 
             if batches_done % args.gradient_accumulations:
                 # Accumulates gradient before each step
-                optimizer.zero_grad()
                 optimizer.step()
-                    
+                optimizer.zero_grad()
+                             
             # ----------------
             #   Log progress
             # ----------------
@@ -102,7 +102,7 @@ def main():
     # Validate
     # ----------------
 
-    def validate():
+    def validate(max_mAP):
         print("\n---- Evaluating Model ----")
         # Evaluate the model on the validation set
         precision, recall, AP, f1, ap_class = evaluate(
@@ -133,6 +133,7 @@ def main():
         is_best = curr_mAP > max_mAP
         max_mAP = max(max_mAP, curr_mAP)
         return curr_mAP, is_best, max_mAP, (ap_table, evaluation_metrics)
+    
     # ----------------
     # Main
     # ----------------
@@ -144,7 +145,7 @@ def main():
     os.makedirs("checkpoints", exist_ok = True)
 
     is_best = 0
-    curr_mAP = 0
+    global max_mAP
     max_mAP = 0
 
 
@@ -192,17 +193,9 @@ def main():
             return
     
     if args.eval:
-        validate()
+        validate(max_mAP)
         return
-
-#     # If specified we start from checkpoint
-#     if args.pretrained_weights:
-#         if args.pretrained_weights.endswith(".pth"):
-#             model.load_state_dict(torch.load(args.pretrained_weights))
-#         else:
-#             model.load_darknet_weights(args.pretrained_weights)
-
-
+    
     metrics = ["grid_size", "loss", "x", "y", "w", "h", 
                "conf", "cls", "cls_acc", "recall50", 
                "recall75", "precision", "conf_obj", "conf_noobj"]
@@ -212,8 +205,9 @@ def main():
     for epoch in range(args.start_epoch, args.epochs):
         loss_record_in_epoch = train()
         tr_losses.append(loss_record_in_epoch)
+
         if epoch % args.evaluation_interval == 0:
-            curr_mAP, is_best, max_mAP, (ap_table, evaluation_metrics) = validate()
+            curr_mAP, is_best, max_mAP, (ap_table, evaluation_metrics) = validate(max_mAP)
             mAPs.append(curr_mAP)
             val_performs.append((ap_table, evaluation_metrics))
 
@@ -241,7 +235,7 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--epochs", type = int, default = 100, 
                         help = "Number of epochs, default = 100")
     parser.add_argument('-se', '--start-epoch', type = int, default = 0,  
-                        help = 'Starting Epoch, defualt = 0')
+                        help = 'Starting Epoch, default = 0')
     parser.add_argument("-b", "--batch-size", type = int, default = 8, 
                         help = "Mini-batch size, default = 8")
     parser.add_argument("-ga", "--gradient-accumulations", type = int, default = 2, 
@@ -269,9 +263,11 @@ if __name__ == "__main__":
     parser.add_argument('--resume', type = str, default = "weights/darknet53.conv.74", 
                         help = 'Path to latest checkpoint (default: none)')
     parser.add_argument('--eval', default = False, type = bool, 
-                    help = 'Turn on evaluation mode, default = False')
-    parser.add_argument("--experiment_name", type=str, default="default", help="allow for multi-scale training")
-    parser.add_argument("--fl_gamma", type=int, default=0, help="interval evaluations on validation set")    
+                        help = 'Turn on evaluation mode, default = False')
+    parser.add_argument("--experiment_name", type=str, default = "default", 
+                        help = "Choose experiment, default: no focal loss")
+    parser.add_argument("--fl_gamma", type = int, default = 0, 
+                        help = "Gamma of focal loss, default: 0 - no focal loss")    
     
     global args
     args = parser.parse_args()

@@ -342,10 +342,13 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
 
     # From (center x, center y, width, height) to (x1, y1, x2, y2)
     prediction[..., :4] = xywh2xyxy(prediction[..., :4])
+    
+    
     output = [None for _ in range(len(prediction))]
     for image_i, image_pred in enumerate(prediction):
         # Filter out confidence scores below threshold
-        image_pred = image_pred[image_pred[:, 4] >= conf_thres]
+        sp_conf_thres = min(image_pred[:, 4].max() *0.9, conf_thres)
+        image_pred = image_pred[image_pred[:, 4] >= sp_conf_thres]
         # If none are remaining => process next image
         if not image_pred.size(0):
             continue
