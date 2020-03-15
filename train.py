@@ -34,6 +34,7 @@ def save_checkpoint(state, is_best, filename = 'checkpoints/yolov3.pth.tar'):
 def main():
     tr_losses = []
     mAPs = []
+    val_performs = []
 
     # ----------------
     # Train
@@ -41,6 +42,8 @@ def main():
     def train():
         model.train()
         start_time = time.time()
+        
+        loss_record_in_epoch = []
         for batch_i, (_, imgs, targets) in enumerate(dataloader):
             batches_done = len(dataloader) * epoch + batch_i
 
@@ -91,8 +94,9 @@ def main():
             print(log_str)
 
             model.seen += imgs.size(0)
+            loss_record_in_epoch.append((metric_table, loss.item()))
 
-        return loss.item()
+        return loss_record_in_epoch
 
     # ----------------
     # Validate
@@ -128,8 +132,7 @@ def main():
         curr_mAP = AP.mean()
         is_best = curr_mAP > max_mAP
         max_mAP = max(max_mAP, curr_mAP)
-        return curr_mAP, is_best, max_mAP
-
+        return curr_mAP, is_best, max_mAP, (ap_table, evaluation_metrics)
     # ----------------
     # Main
     # ----------------
@@ -163,7 +166,7 @@ def main():
     )
 
     # Initialize model and optimizer
-    model = Darknet(args.model_def).to(device)
+    model = Darknet(args.model_def, fl_gamma = args.fl_gamma).to(device)
     model.apply(weights_init_normal)
     # model = torch.nn.DataParallel(model, device_ids = range(len(args.gpu))).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr = args.lr)
@@ -171,13 +174,19 @@ def main():
     # Resume the training 
     if args.resume:
         if os.path.isfile(args.resume):
-            print("=> loading YOLOv3 checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch']
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                .format(args.resume, checkpoint['epoch']))
+            if args.resume.endswith(".pth"):
+                print("=> loading YOLOv3 checkpoint '{}'".format(args.resume))
+                checkpoint = torch.load(args.resume)
+                args.start_epoch = checkpoint['epoch']
+                model.load_state_dict(checkpoint['model_state_dict'])
+                optimizer.load_state_dict(checkpoint['optimizer'])
+                tr_losses = checkpoint['tr_losses']
+                val_performs = checkpoint['val_performs']
+                print("=> loaded checkpoint '{}' (epoch {})"
+                    .format(args.resume, checkpoint['epoch']))
+            else:
+                print('use pre_trained model')
+                model.load_darknet_weights(args.resume)
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
             return
@@ -186,12 +195,12 @@ def main():
         validate()
         return
 
-    # If specified we start from checkpoint
-    if args.pretrained_weights:
-        if args.pretrained_weights.endswith(".pth"):
-            model.load_state_dict(torch.load(args.pretrained_weights))
-        else:
-            model.load_darknet_weights(args.pretrained_weights)
+#     # If specified we start from checkpoint
+#     if args.pretrained_weights:
+#         if args.pretrained_weights.endswith(".pth"):
+#             model.load_state_dict(torch.load(args.pretrained_weights))
+#         else:
+#             model.load_darknet_weights(args.pretrained_weights)
 
 
     metrics = ["grid_size", "loss", "x", "y", "w", "h", 
@@ -201,18 +210,21 @@ def main():
     cudnn.benchmark = True
 
     for epoch in range(args.start_epoch, args.epochs):
-        tr_loss = train()
-        tr_losses.append(tr_loss)
+        loss_record_in_epoch = train()
+        tr_losses.append(loss_record_in_epoch)
         if epoch % args.evaluation_interval == 0:
-            curr_mAP, is_best, max_mAP = validate()
+            curr_mAP, is_best, max_mAP, (ap_table, evaluation_metrics) = validate()
             mAPs.append(curr_mAP)
+            val_performs.append((ap_table, evaluation_metrics))
 
         if not epoch or not epoch % args.checkpoint_interval:
             save_checkpoint({
             "epoch": epoch + 1, # start from next epoch
             "model_state_dict": model.state_dict(),
-            "optimizer": optimizer.state_dict()
-            }, is_best)
+            "optimizer": optimizer.state_dict(),
+            'tr_losses': tr_losses,
+            'val_performs': val_performs,     
+            }, is_best,  "checkpoints/{}_{}_yolov3_ckpt_{:d}.pth".format(args.experiment_name, args.fl_gamma, epoch))
     
     data = {"train": tr_losses, "val": mAPs}
     with open("output/yolo_results.pkl", "wb") as f: 
@@ -240,8 +252,8 @@ if __name__ == "__main__":
                         help = "File path for storing model definition / configuration")
     parser.add_argument("-dd", "--data-config", type = str, default = "config/coco.data", 
                         help = "File path for storing data configuration")
-    parser.add_argument("-w", "--pretrained-weights", type = str, default = "",
-                        help = "Path for pretrained weights (only used for checkpoint loading mode)")
+#     parser.add_argument("-w", "--pretrained-weights", type = str, default = "weights/darknet53.conv.74",
+#                         help = "Path for pretrained weights (only used for checkpoint loading mode)")
     parser.add_argument("-j", "--workers", type = int, default = 8, 
                         help = "Number of cpu threads / workers to use during batch generation, default = 8")
     parser.add_argument("-s", "--img-size", type = int, default = 416, 
@@ -254,10 +266,12 @@ if __name__ == "__main__":
                         help = "Get mAP if True for every 10 batches, default = False")
     parser.add_argument("-mt", "--multiscale-training", type = bool, default = True, 
                         help = "Whether to implement multi-scale training, default = True")
-    parser.add_argument('--resume', type = str, default = '', 
+    parser.add_argument('--resume', type = str, default = "weights/darknet53.conv.74", 
                         help = 'Path to latest checkpoint (default: none)')
     parser.add_argument('--eval', default = False, type = bool, 
                     help = 'Turn on evaluation mode, default = False')
+    parser.add_argument("--experiment_name", type=str, default="default", help="allow for multi-scale training")
+    parser.add_argument("--fl_gamma", type=int, default=0, help="interval evaluations on validation set")    
     
     global args
     args = parser.parse_args()

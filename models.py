@@ -172,7 +172,10 @@ class YOLOLayer(nn.Module):
         self.img_size = img_size
         
         self.MSE = nn.MSELoss()
-        self.FL = FocalLoss(nn.BCELoss(), fl_gamma) 
+        if fl_gamma == 0:
+            self.FL = nn.BCELoss()
+        else:
+            self.FL = FocalLoss(nn.BCELoss(), gamma = fl_gamma) 
 
         self.ignore_thres = 0.5
         self.obj_scale = 1

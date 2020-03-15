@@ -6,9 +6,35 @@ import numpy as np
 from PIL import Image
 import torch
 import torch.nn.functional as F
+
+from utils.augmentations import horisontal_flip
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
-from utils.utils import *
+
+
+def pad_to_square(img, pad_value):
+    c, h, w = img.shape
+    dim_diff = np.abs(h - w)
+    # (upper / left) padding and (lower / right) padding
+    pad1, pad2 = dim_diff // 2, dim_diff - dim_diff // 2
+    # Determine padding
+    pad = (0, 0, pad1, pad2) if h <= w else (pad1, pad2, 0, 0)
+    # Add padding
+    img = F.pad(img, pad, "constant", value=pad_value)
+
+    return img, pad
+
+
+def resize(image, size):
+    image = F.interpolate(image.unsqueeze(0), size=size, mode="nearest").squeeze(0)
+    return image
+
+
+def random_resize(images, min_size=288, max_size=448):
+    new_size = random.sample(list(range(min_size, max_size + 1, 32)), 1)[0]
+    images = F.interpolate(images, size=new_size, mode="nearest")
+    return images
+
 
 class ImageFolder(Dataset):
     def __init__(self, folder_path, img_size=416):
@@ -35,16 +61,31 @@ class ListDataset(Dataset):
         with open(list_path, "r") as file:
             self.img_files = file.readlines()
         
-        self.label_files = [
-            'data'+ path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")[2:]
-            for path in self.img_files
-        ]
-                
-        self.img_files = [
-           '/datasets/COCO-2015' +  path.split("images")[1]
-            for path in self.img_files
-        ]
         
+        if 'coco_1000' in list_path:
+            self.label_files = [
+                'data'+ path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")[2:]
+                for path in self.img_files
+            ]
+
+            self.img_files = [
+               '/datasets/COCO-2015' +  path.split("images")[1]
+                for path in self.img_files
+            ]
+        else:
+            self.label_files = [
+                path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt").split('PyTorch-YOLOv3/')[1]
+                for path in self.img_files
+            ]
+
+            self.img_files = [
+               '/datasets/COCO-2015' +  path.split("images")[1]
+                for path in self.img_files
+            ]            
+        
+# /home/tema/cse253/final/PyTorch-YOLOv3/data/coco/images/train2014/COCO_train2014_000000000030.jpg
+
+
         
         self.img_size = img_size
         self.max_objects = 100
@@ -108,7 +149,7 @@ class ListDataset(Dataset):
         # Apply augmentations
         if self.augment:
             if np.random.random() < 0.5:
-                img, targets = horizontal_flip(img, targets)
+                img, targets = horisontal_flip(img, targets)
 
         return img_path, img, targets
 
